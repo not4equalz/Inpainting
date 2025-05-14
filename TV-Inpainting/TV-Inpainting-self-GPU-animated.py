@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import os
 from Utils.SSIM import calculate_ssim_arrays
+from matplotlib.animation import FuncAnimation
 import Utils.Corruptions as painting
 import Utils.loss as lossfunc
 import Utils.Preprocessing as pre
@@ -22,13 +23,13 @@ file_path = os.path.join(os.path.dirname(__file__), 'data', 'Lola.jpg')
 # Width of the image after resizing  set to 1 for no resizing
 width = 1
 
-inpainting_method = "line"  # Options: "line", "random", "square"
+inpainting_method = "square"  # Options: "line", "random", "square"
 
 # if random inpainting is used, set corruption level
-corruption = 0.2  # Corruption level between 0 (no corruption) and 1 (black pixels only)
+corruption = 0.98  # Corruption level between 0 (no corruption) and 1 (black pixels only)
 
 #if square inpainting is used, set square_size and num_squares
-square_size = 20  # Size of the squares to be inpainted
+square_size = 30  # Size of the squares to be inpainted
 num_squares = 20 # Number of squares to be inpainted
 
 #if line inpainting is used, set line_width and angle
@@ -36,7 +37,7 @@ line_width = 20  # Width of the line to be inpainted
 angle = 90  # Angle of the line in degrees
 
 #Number of iterations for the optimizer
-iter = 600
+iter = 300
 
 
 #preprocess the image
@@ -62,6 +63,10 @@ else:
 # === Objective Function ===
 U = U_paint.clone().detach().contiguous().requires_grad_(True)
 optimizer = torch.optim.LBFGS([U], max_iter=iter, lr=1.0, line_search_fn="strong_wolfe")
+
+# Prepare for animation
+frames = []
+
 def closure():
     optimizer.zero_grad()
 
@@ -71,67 +76,41 @@ def closure():
 
     fidelity = torch.nn.functional.mse_loss(U * mask, U_paint)
     tv = lossfunc.tv_loss(U)
-    loss =tv
+    loss = tv
     loss.backward()
     U.grad *= (1 - mask)
     print(f"Loss: {loss.item():.6f} | Fidelity: {fidelity.item():.6f} | TV: {tv.item():.6f}")
-    return loss
 
+    # Capture the current state of U for animation
+    with torch.no_grad():
+        frames.append(lossfunc.to_numpy(U).copy())
+
+    return loss
 
 # === Optimization ===
 print("Starting optimization...")
 optimizer.step(closure)
 
+# Create animation
 
-#convert to numpy for visualization
-U = lossfunc.to_numpy(U)
-U_paint = lossfunc.to_numpy(U_paint)
+fig, ax = plt.subplots(dpi=150)  # Increase DPI for higher resolution
+im = ax.imshow(frames[0], animated=True)
+ax.axis("off")
 
+def update(frame):
+    im.set_array(frame)
+    return [im]
 
-# Compute SSIM between two images
-score = calculate_ssim_arrays(U, U_orig)
-print(f"Image similarity (SSIM): {score * 100:.2f}%")
+ani = FuncAnimation(fig, update, frames=frames, interval=50, blit=True)
 
+# Save the animation
+corruption_details = f"{inpainting_method}_corruption-{corruption}" if inpainting_method == "random" else \
+                     f"{inpainting_method}_square-{square_size}_num-{num_squares}" if inpainting_method == "square" else \
+                     f"{inpainting_method}_line-{line_width}_angle-{angle}"
+output_path = os.path.join(os.path.dirname(__file__), 'generated', 'animated', f'animation_{corruption_details}.mp4')
+os.makedirs(os.path.dirname(output_path), exist_ok=True)
+ani.save(output_path, fps=60, extra_args=['-vcodec', 'libx264'])
+print(f"Animation saved to: {output_path}")
 
-plt.figure(figsize=(16, 4))
-plt.subplot(1, 4, 1)
-plt.imshow(U_orig)
-plt.title("Original Image")
-plt.axis("off")
-
-plt.subplot(1, 4, 2)
-plt.imshow(U_paint)
-corruption_percentage = (1 - mask.mean().item()) * 100
-print(f"Corruption percentage: {corruption_percentage:.2f}%")
-plt.title(f"Corrupted ({corruption_percentage:.2f}%)")
-plt.axis("off")
-
-plt.subplot(1, 4, 3)
-plt.imshow(U)
-plt.title(f"Inpainted ({device}) | SSIM: {score * 100:.2f}%")
-plt.axis("off")
-
-plt.subplot(1, 4, 4)
-plt.imshow(np.clip(U - U_orig, 0, 1))
-plt.title(f"Difference")
-plt.axis("off")
-
-plt.tight_layout()
-
-# Save the inpainted image
-if inpainting_method == "line":
-    corruption_details = f"line_width_{line_width}_angle_{angle}"
-elif inpainting_method == "random":
-    corruption_details = f"corruption_{corruption:.2f}"
-elif inpainting_method == "square":
-    corruption_details = f"square_size_{square_size}_num_squares_{num_squares}"
-else:
-    corruption_details = "unknown"
-
-output_filename = f"inpainted_image_{inpainting_method}_{corruption_details}.png"
-output_path = os.path.join(os.path.dirname(__file__), 'generated', output_filename)
-
-plt.savefig(output_path, bbox_inches='tight', dpi=300)
-print(f"Inpainted image saved to: {output_path}")
 plt.show()
 
