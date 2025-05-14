@@ -3,7 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 import os
-
+# PARAMETER TUNING
+alpha = 0.2
 # Width of the image after resizing  set to 1 for no resizing
 width = 1
 
@@ -20,7 +21,7 @@ line_width = 5  # Width of the line to be inpainted
 angle = 45  # Angle of the line in degrees
 
 #maximum number of iterations for the optimizer
-max_iter = 100
+max_iter = 1000
 
 #path to the image
 file_path = os.path.join(os.path.dirname(__file__), 'data', 'Lola.jpg')
@@ -84,15 +85,15 @@ def line_inpaint(image, line_width=5, angle=0):
 
 #uncomment one of the following lines to use either random inpainting, square inpainting or line impainting
 #U_paint, mask = line_inpaint(image, line_width=line_width, angle=angle)
-U_paint, mask = random_inpaint(image, level=corruption)
-#U_paint, mask = square_inpaint(image, square_size=square_size, num_squares=num_squares)
+#U_paint, mask = random_inpaint(image, level=corruption)
+U_paint, mask = square_inpaint(image, square_size=square_size, num_squares=num_squares)
 
 # === Total Variation (explicit, as in your code) ===
 def tv_loss(U):
     dx = U[:, :, 1:, :-1] - U[:, :, :-1, :-1]
     dy = U[:, :, :-1, 1:] - U[:, :, :-1, :-1]
     tv = torch.sum(torch.sqrt(dx**2 + dy**2 + 1e-6))
-    return tv 
+    return tv / (U.numel() * 1.0)  # Normalize by total number of elements
 
 
 # === Objective Function ===
@@ -102,19 +103,12 @@ optimizer = torch.optim.LBFGS([U], max_iter=max_iter, lr=1.0, line_search_fn="st
 
 def closure():
     optimizer.zero_grad()
-
-    # Enforce hard constraints in-place
-    with torch.no_grad():
-        U.data = U.data * (1 - mask) + U_paint * mask
-
     fidelity = torch.nn.functional.mse_loss(U * mask, U_paint)
     tv = tv_loss(U)
-    loss = tv
+    loss = fidelity + alpha * tv
     loss.backward()
-    U.grad *= (1 - mask)
     print(f"Loss: {loss.item():.6f} | Fidelity: {fidelity.item():.6f} | TV: {tv.item():.6f}")
     return loss
-
 
 # === Optimization ===
 print("Starting optimization...")
