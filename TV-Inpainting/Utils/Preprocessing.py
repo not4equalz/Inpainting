@@ -12,3 +12,26 @@ def preprocess(file_path, new_width=300):
     new_height = int(new_width * aspect_ratio)
     image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
     return np.array(image) / 255.0  # Normalize to [0, 1]
+
+def preprocess_upscale(file_path, new_scale=2):
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"The file '{file_path}' does not exist.")
+    image = Image.open(file_path).convert('RGB')
+    image = np.array(image) / 255.0  # Normalize to [0, 1]
+    h, w = image.shape[:2]
+
+    new_width = int(w * new_scale)
+    new_height = int(h * new_scale)
+    newimage = np.zeros((new_height, new_width, 3))  # Black by default
+
+    mask = np.zeros((new_height, new_width), dtype=np.uint8)
+
+    for i in range(h):
+        for j in range(w):
+            ni = int(i * new_scale)
+            nj = int(j * new_scale)
+            if ni < new_height and nj < new_width:
+                newimage[ni, nj, :] = image[i, j, :]
+                mask[ni, nj] = 1  # Mark as affected (copied pixel)
+
+    return image, newimage, mask
