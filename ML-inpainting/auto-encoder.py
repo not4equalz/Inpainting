@@ -353,7 +353,7 @@ try:
     filename = 'autoencoder_random_noise_100_50_32_2025-05-21 17:24:35.823522.keras'
     model_path = os.path.join(os.path.dirname(__file__), 'model-builds', filename)
     model = keras.models.load_model(model_path, custom_objects={'SSIMLoss': SSIMLoss})
-except ValueError:
+except:
     model = build_autoencoder((PATCH_SIZE, PATCH_SIZE, CHANNELS))
     model.compile(optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE), loss=SSIMLoss) # Mean Squared Error is common for image tasks
     model.summary()

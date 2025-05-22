@@ -1,0 +1,175 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from PIL import Image
+import tensorflow as tf
+from tensorflow.keras import layers, models
+import os
+
+def load_image(image_path):
+    """Loads an image and converts it to a NumPy array, handling RGB."""
+    img = Image.open(image_path).convert('RGB') # Convert to RGB
+    return np.array(img) / 255.0 # Normalize to [0, 1]
+
+def extract_patches(image, patch_size, stride):
+    """Extracts overlapping patches from an image (supports RGB)."""
+    patches = []
+    h, w, c = image.shape # Now includes channels
+    for i in range(0, h - patch_size + 1, stride):
+        for j in range(0, w - patch_size + 1, stride):
+            patch = image[i:i+patch_size, j:j+patch_size, :] # Extract all channels
+            patches.append(patch)
+    return np.array(patches)
+
+def create_damaged_patch(patch, damage_size_ratio_min=0.1, damage_size_ratio_max=0.3):
+    """
+    Creates a damaged version of a patch by adding a random black square (for RGB).
+    """
+    damaged_patch = np.copy(patch)
+    damage_mask = np.zeros_like(damaged_patch)
+    p_h, p_w, p_c = patch.shape # Now includes channels
+
+    # Determine random damage size
+    damage_h_min = int(p_h * damage_size_ratio_min)
+    damage_h_max = int(p_h * damage_size_ratio_max)
+    damage_w_min = int(p_w * damage_size_ratio_min)
+    damage_w_max = int(p_w * damage_size_ratio_max)
+
+    damage_h = np.random.randint(damage_h_min, damage_h_max + 1)
+    damage_w = np.random.randint(damage_w_min, damage_w_max + 1)
+
+    # Determine random position for the damage
+    start_row = np.random.randint(0, p_h - damage_h + 1)
+    start_col = np.random.randint(0, p_w - damage_w + 1)
+
+    # Set the damaged area to black across all channels
+    damaged_patch[start_row : start_row + damage_h,
+                  start_col : start_col + damage_w, :] = 0.0 # Set all channels to 0.0 (black)
+
+    damage_mask[start_row : start_row + damage_h,
+                  start_col : start_col + damage_w, :] = 1
+
+    return damage_mask.astype(bool), damaged_patch
+
+def build_autoencoder(input_shape):
+    """Builds a simple convolutional autoencoder (supports RGB input/output)."""
+    # Encoder
+    encoder_input = layers.Input(shape=input_shape)
+    x = layers.Conv2D(32, (3, 3), activation='relu', padding='same')(encoder_input)
+    x = layers.MaxPooling2D((2, 2), padding='same')(x)
+    x = layers.Conv2D(16, (3, 3), activation='relu', padding='same')(x)
+    encoded = layers.MaxPooling2D((2, 2), padding='same')(x)
+
+    # Decoder
+    x = layers.Conv2D(16, (3, 3), activation='relu', padding='same')(encoded)
+    x = layers.UpSampling2D((2, 2))(x)
+    x = layers.Conv2D(32, (3, 3), activation='relu', padding='same')(x)
+    x = layers.UpSampling2D((2, 2))(x)
+    # The last layer's filter count must match the number of channels (3 for RGB)
+    decoded = layers.Conv2D(input_shape[-1], (3, 3), activation='sigmoid', padding='same')(x)
+
+    autoencoder = models.Model(encoder_input, decoded)
+    return autoencoder
+
+# --- Main part of the script ---
+if __name__ == "__main__":
+    # 1. Load the image
+    # You can replace 'sample_image.png' with your image path.
+    # For demonstration, let's create a dummy RGB image if one isn't present.
+    image_path = os.path.join(os.path.dirname(__file__), '..', 'TV-Inpainting', 'data', 'Lola.jpg')
+    try:
+        original_image = load_image(image_path)
+        print(f"Loaded image from {image_path} with shape {original_image.shape}")
+    except FileNotFoundError:
+        print("Sample RGB image not found. Creating a dummy RGB image for demonstration.")
+        # Create a 256x256 RGB random image
+        original_image = np.random.rand(256, 256, 3)
+        Image.fromarray((original_image * 255).astype(np.uint8)).save(image_path)
+        original_image = load_image(image_path)
+
+
+    # 2. Extract patches
+    patch_size = 64
+    stride = 32 # Overlapping patches
+    all_patches = extract_patches(original_image, patch_size, stride)
+    print(f"Extracted {len(all_patches)} patches, each of size {patch_size}x{patch_size}.")
+
+    # Input shape for CNN (batch, height, width, channels)
+    # No need for expand_dims as patches already have 3 channels
+    input_shape = all_patches.shape[1:]
+
+    # 3. Create damaged patches and prepare dataset
+    # Squeeze is not needed as patches are already (H, W, C)
+
+    damaged_patches = np.array([patch for (mask, patch) in [create_damaged_patch(p) for p in all_patches]])
+
+    print(f"Shape of original patches dataset: {all_patches.shape}")
+    print(f"Shape of damaged patches dataset: {damaged_patches.shape}")
+
+    # 4. Build the autoencoder
+    def SSIMLoss(y_true, y_pred):
+        return 1 - tf.reduce_mean(tf.image.ssim(y_true, y_pred, 1.0))
+    
+    autoencoder = build_autoencoder(input_shape)
+    autoencoder.compile(optimizer='adam', loss='mae')
+    autoencoder.summary()
+
+    # 5. Train the autoencoder
+    print("\nTraining the autoencoder...")
+    history = autoencoder.fit(damaged_patches, all_patches,
+                              epochs=50,
+                              batch_size=32,
+                              shuffle=True,
+                              validation_split=0.1,
+                              verbose=1)
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(history.history['loss'], label='Training Loss')
+    plt.plot(history.history['val_loss'], label='Validation Loss')
+    plt.title('Autoencoder Training Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Mean Squared Error')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    # 6. Evaluate the trained model on 3 different (random) artificially damaged patches
+    print("\nEvaluating model performance on new damaged patches...")
+    num_eval_samples = 3
+
+    # Select random indices for evaluation
+    random_indices = np.random.choice(len(all_patches), num_eval_samples, replace=False)
+
+    plt.figure(figsize=(15, 6))
+    for i, idx in enumerate(random_indices):
+        original_patch = all_patches[idx]
+        # Create a *new* random damage for demonstration
+        test_damage_mask, test_damaged_patch = create_damaged_patch(original_patch)
+        # Add batch dimension for prediction
+        test_damaged_patch_input = np.expand_dims(test_damaged_patch, axis=0)
+
+        reconstructed_patch = np.copy(test_damaged_patch)
+        predicted_patch = autoencoder.predict(test_damaged_patch_input).squeeze()
+        reconstructed_patch[test_damage_mask] = predicted_patch[test_damage_mask]
+
+        # Original Patch
+        plt.subplot(num_eval_samples, 3, i * 3 + 1)
+        plt.imshow(original_patch) # No cmap='gray' needed for RGB
+        plt.title('Original Patch')
+        plt.axis('off')
+
+        # Damaged Patch
+        plt.subplot(num_eval_samples, 3, i * 3 + 2)
+        plt.imshow(test_damaged_patch) # No cmap='gray' needed for RGB
+        plt.title('Damaged Patch')
+        plt.axis('off')
+
+        # Reconstructed Patch
+        plt.subplot(num_eval_samples, 3, i * 3 + 3)
+        plt.imshow(reconstructed_patch) # No cmap='gray' needed for RGB
+        plt.title('Reconstructed Patch')
+        plt.axis('off')
+
+    plt.tight_layout()
+    plt.show()
+
+    print("\nDemonstration complete.")
