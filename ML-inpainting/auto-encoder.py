@@ -368,7 +368,7 @@ except ValueError:
                         epochs=EPOCHS,
                         verbose=1)
 
-    filename = f'autoencoder_random_noise_{EPOCHS}_{STEPS_PER_EPOCH}_{BATCH_SIZE}_{datetime.datetime.now()}.keras'
+    filename = f'autoencoder_random_noise_{EPOCHS}_{STEPS_PER_EPOCH}_{BATCH_SIZE}_{datetime.datetime.now()}.keras'.replace(' ', '_')
     model_path = os.path.join(os.path.dirname(__file__), 'model-builds', filename)
     model.save(model_path)
 
