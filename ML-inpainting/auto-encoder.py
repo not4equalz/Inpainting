@@ -5,7 +5,7 @@ from tensorflow import keras
 from tensorflow.keras import layers
 import matplotlib.pyplot as plt
 import cv2 # For image loading and manipulation
-import datetime
+import time
 
 # --- Configuration ---
 PATCH_SIZE = 64  # Size of the square patches (e.g., 64x64 pixels)
@@ -368,7 +368,7 @@ except ValueError:
                         epochs=EPOCHS,
                         verbose=1)
 
-    filename = f'autoencoder_random_noise_{EPOCHS}_{STEPS_PER_EPOCH}_{BATCH_SIZE}_{datetime.datetime.now()}.keras'.replace(' ', '_')
+    filename = f'autoencoder_random_noise_{EPOCHS}_{STEPS_PER_EPOCH}_{BATCH_SIZE}_{time.time()}.keras'.replace(' ', '_').replace(':', '.')
     model_path = os.path.join(os.path.dirname(__file__), 'model-builds', filename)
     model.save(model_path)
 
