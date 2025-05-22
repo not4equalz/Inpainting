@@ -5,22 +5,22 @@ from tensorflow import keras
 from tensorflow.keras import layers
 import matplotlib.pyplot as plt
 import cv2 # For image loading and manipulation
-
+import datetime
 
 # --- Configuration ---
 PATCH_SIZE = 64  # Size of the square patches (e.g., 64x64 pixels)
 MASK_SIZE = 32   # Size of the square mask to apply within the patch
 BATCH_SIZE = 32
-EPOCHS = 50
-LEARNING_RATE = 0.001
+EPOCHS = 100
+LEARNING_RATE = 0.005
 
-corruptions = [[(50, 50), (81, 81)],
- [(150, 180), (181, 211)],
- [(50, 50), (81, 81)],
- [(200, 300), (231, 331)],
- [(400, 100), (431, 131)],
- [(600, 500), (631, 531)],
- [(100, 800), (131, 831)]]
+corruptions = [[(50, 50), (82, 82)],
+ [(150, 180), (182, 212)],
+ [(50, 50), (82, 82)],
+ [(200, 300), (232, 332)],
+ [(400, 100), (432, 132)],
+ [(600, 500), (632, 532)],
+ [(100, 800), (132, 832)]]
 
 # --- 1. Load your Damaged Image ---
 # Replace 'your_damaged_image.jpg' with the actual path
@@ -32,7 +32,7 @@ try:
         damage_mask = np.zeros(shape=(damaged_image_np.shape[0], damaged_image_np.shape[1]))
         for ((x_start, y_start), (x_stop, y_stop)) in corruptions:
             cv2.rectangle(damaged_image_np, (x_start, y_start), (x_stop, y_stop), (0, 0, 0), -1)
-            damage_mask[y_start : y_stop, x_start : x_stop] = 1
+            damage_mask[y_start : y_stop + 1, x_start : x_stop + 1] = 1
             # print("hello!!")
             # print(damage_mask[:10, :])
             # print(np.any(damage_mask[:10, :10]))
@@ -79,13 +79,18 @@ def get_random_patch(image, patch_size, mask_size):
 
     masked_patch = original_patch.copy()
 
-    # Apply a random square mask within the patch
-    mask_y_start = np.random.randint(0, patch_size - mask_size + 1)
-    mask_x_start = np.random.randint(0, patch_size - mask_size + 1)
-    
-    # Fill the mask with black (0) for simplicity. Could also be random noise.
-    masked_patch[mask_y_start : mask_y_start + mask_size,
-                 mask_x_start : mask_x_start + mask_size, :] = 0.0 # Black out
+    num_removals = np.random.randint(2, 10)
+    for i in range(num_removals):
+        # Apply a random square mask within the patch
+        random_mask_size = np.random.randint(3, patch_size/2)
+        mask_y_start = np.random.randint(0, patch_size - random_mask_size + 1)
+        mask_x_start = np.random.randint(0, patch_size - random_mask_size + 1)
+        random_noise_region = np.random.rand(random_mask_size, random_mask_size, CHANNELS).astype(np.float32)
+        # damaged_image_np[y_start_mask : y_stop_mask+1, x_start_mask : x_stop_mask+1, :] = \
+        #         random_noise_region
+            
+        masked_patch[mask_y_start : mask_y_start + random_mask_size,
+                 mask_x_start : mask_x_start + random_mask_size, :] = random_noise_region # Black out
 
     return masked_patch, original_patch
 
@@ -129,7 +134,7 @@ def build_simple_nn(input_shape):
     # Layer 1: Learn initial features
     x = layers.Conv2D(64, (5, 5), activation='relu', padding='same')(input_img) 
     # Layer 2: Refine features
-    x = layers.Conv2D(32, (5, 5), activation='relu', padding='same')(x)
+    x = layers.Conv2D(32, (3, 3), activation='relu', padding='same')(x)
     # Layer 3 (Output): Predict pixel values
     # The output layer has 'CHANNELS' filters to match the input image's color channels (e.g., 3 for RGB)
     # 'sigmoid' activation ensures output pixel values are between 0 and 1.
@@ -138,97 +143,52 @@ def build_simple_nn(input_shape):
     simple_nn_model = keras.Model(input_img, output_img)
     return simple_nn_model
 
-def SSIMLoss(y_true, y_pred):
-  return 1 - tf.reduce_mean(tf.image.ssim(y_true, y_pred, 1.0))
-
-model = build_autoencoder((PATCH_SIZE, PATCH_SIZE, CHANNELS))
-model.compile(optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE), loss='mae') # Mean Squared Error is common for image tasks
-model.summary()
-
-# --- 4. Training ---
-# Calculate steps per epoch based on how many batches you want per epoch
-STEPS_PER_EPOCH = 100 # Each epoch will generate 100 * BATCH_SIZE patches
-print(f"Training for {EPOCHS} epochs, with {STEPS_PER_EPOCH * BATCH_SIZE} patches per epoch.")
-
-history = model.fit(train_generator,
-                    steps_per_epoch=STEPS_PER_EPOCH,
-                    epochs=EPOCHS,
-                    verbose=1)
-
 # --- 5. Inpainting (Inference) ---
 def inpaint_image(model, image, patch_size, mask_size_for_inference=None):
-    """
-    Applies the trained model to inpaint the entire image.
-    This is a simplified approach, often uses sliding windows or full image processing.
-    For true inpainting, you would identify the damaged regions and apply the model there.
-    Here, we simulate by applying masks and then predicting.
-    """
-    inpainted_image = damaged_image_np.copy()
-    
-    # Iterate through the image in chunks (simplified, usually more complex for full image)
-    # For a truly damaged image, you'd feed the damaged regions as input
-    # For this simple example, we'll just demonstrate by creating a new masked version
-    
-    # Let's create a test masked version of the original image
-    
-    # Example: create a large mask in the center for demonstration
-    center_y, center_x = image.shape[0] // 2, image.shape[1] // 2
-    # test_mask_y_start = center_y - (mask_size_for_inference or MASK_SIZE) // 2
-    # test_mask_x_start = center_x - (mask_size_for_inference or MASK_SIZE) // 2
-    
-    # test_mask_y_end = test_mask_y_start + (mask_size_for_inference or MASK_SIZE)
-    # test_mask_x_end = test_mask_x_start + (mask_size_for_inference or MASK_SIZE)
-    
-    # Ensure mask is within bounds
-    # test_mask_y_start = max(0, test_mask_y_start)
-    # test_mask_x_start = max(0, test_mask_x_start)
-    # test_mask_y_end = min(image.shape[0], test_mask_y_end)
-    # test_mask_x_end = min(image.shape[1], test_mask_x_end)
-    
-    # test_masked_image[test_mask_y_start:test_mask_y_end, 
-    #                    test_mask_x_start:test_mask_x_end, :] = 0.0 # Black out for inference
-
-    # To inpaint, you would typically slide a window or pass the entire damaged image
-    # For a simple patch-based model, we apply it on a patch containing damage
-    
-
-    # Ensure the inference patch is within image bounds
-    # y_inf = max(0, min(y_inf, image.shape[0] - PATCH_SIZE))
-    # x_inf = max(0, min(x_inf, image.shape[1] - PATCH_SIZE))
-
-    # inference_patch = test_masked_image[y_inf : y_inf + PATCH_SIZE,
-    #                                     x_inf : x_inf + PATCH_SIZE]
-    
-    # Model expects a batch, so add dimension
-    # for ((x_start, y_start), (x_stop, y_stop)) in corruptions:
-    #     x_inf = max(0, 2*x_start - x_stop)
-    #     y_inf = max(0, 2*x_start - x_stop)
-
-    #     predicted_patch = model.predict(np.expand_dims(inference_patch, axis=0))[0]
-    #     inpainted_image[y_start : y_stop,
-    #                     x_start : x_stop] = predicted_patch
-        # Iterate through the image with a sliding window
-    # We iterate such that the patch always fits within the image boundaries
+    inpainted_image = image.copy()
     img_height, img_width, _ = inpainted_image.shape
-    step_size = max(1, patch_size)
+    
+    # Calculate step size. A smaller step size means more overlap and smoother results,
+    # but also more computation. For full coverage, make sure it's <= patch_size.
+    # For now, let's just do full patches for simplicity.
+    step_size = patch_size // 2 if patch_size > 1 else 1 # Example: half overlap
+
+    for ((x_start_mask, y_start_mask), (x_stop_mask, y_stop_mask)) in corruptions:
+        corruption_height = y_stop_mask - y_start_mask
+        corruption_width = x_stop_mask - x_start_mask
+
+        # Add random noise in the damaged region (test)
+        random_noise_region = np.random.rand(corruption_height + 1, corruption_width + 1, CHANNELS).astype(np.float32)
+        damaged_image_np[y_start_mask : y_stop_mask +1, x_start_mask : x_stop_mask + 1, :] = \
+            random_noise_region
+
 
     for y in range(0, img_height - patch_size + 1, step_size):
         for x in range(0, img_width - patch_size + 1, step_size):
+            # Extract the current patch from the *original damaged image*
+            current_damaged_patch = damaged_image_np[y : y + patch_size, x : x + patch_size].copy()
             
-            # Extract the corresponding mask region for this patch
-            current_mask_region = damage_mask[y : y + patch_size, x : x + patch_size].astype(bool)
-            if np.any(current_mask_region):
-                # Extract the current patch region from the image with damage
-                current_patch_region_from_damaged_img = damaged_image_np[y : y + patch_size, x : x + patch_size].copy()
-                multi_channel_mask_for_patch = np.stack([current_mask_region]*CHANNELS, axis=-1)
-                current_patch_region_from_damaged_img[multi_channel_mask_for_patch] = 0.0
+            # Identify the damaged areas within this patch based on the global damage_mask
+            # Create a multi-channel mask for the current patch
+            current_patch_mask = damage_mask[y : y + patch_size, x : x + patch_size].astype(bool)
+            multi_channel_mask_for_patch = np.stack([current_patch_mask]*CHANNELS, axis=-1)
 
-                inpainted_patch = model.predict(np.expand_dims(current_patch_region_from_damaged_img, axis=0), verbose=0)[0]
+            # If there's damage in this patch, prepare it for the model
+            if np.any(current_patch_mask):
+                # The input to the model should be the patch with its damaged areas (from `damage_mask`) filled with black.
+                # Your `damaged_image_np` already has these regions blacked out.
+                # So `current_damaged_patch` is already the correct input if you want the model to predict the missing parts.
+
+                # Predict the inpainted version of this patch
+                predicted_patch = model.predict(np.expand_dims(current_damaged_patch, axis=0), verbose=0)[0]
+
+                # Only replace the damaged pixels in the inpainted_image with the predicted pixels
+                # Use the multi_channel_mask_for_patch to selectively copy
                 inpainted_image[y : y + patch_size, x : x + patch_size][multi_channel_mask_for_patch] = \
-                    inpainted_patch[multi_channel_mask_for_patch]
-                # inpainted_image[y : y + patch_size, x : x + patch_size][current_mask_region] = inpainted_patch
-
-    # Overlay the predicted patch back onto the image
+                    predicted_patch[multi_channel_mask_for_patch]
+            # else:
+                # If there's no damage in this patch, we don't need to do anything,
+                # as the inpainted_image already contains the original (undamaged) pixels.
 
     return inpainted_image
 
@@ -248,10 +208,17 @@ def inpaint_image_by_corruption(model, image, patch_size, corruptions_list):
     padding = (patch_size - mask_size) // 2
 
     for ((x_start_mask, y_start_mask), (x_stop_mask, y_stop_mask)) in corruptions_list:
+        corruption_height = y_stop_mask - y_start_mask
+        corruption_width = x_stop_mask - x_start_mask
         # Determine the ideal top-left corner of the 64x64 patch that centers the 32x32 mask
         ideal_patch_y = y_start_mask - padding
         ideal_patch_x = x_start_mask - padding
 
+        # Add random noise in the damaged region (test)
+        random_noise_region = np.random.rand(corruption_height+1, corruption_width+1, CHANNELS).astype(np.float32)
+        damaged_image_np[y_start_mask : y_stop_mask+1, x_start_mask : x_stop_mask+1, :] = \
+            random_noise_region
+        
         # Create a temporary buffer for the input patch (64x64) to handle boundary conditions
         input_for_model = np.zeros((patch_size, patch_size, CHANNELS), dtype=np.float32)
 
@@ -281,6 +248,7 @@ def inpaint_image_by_corruption(model, image, patch_size, corruptions_list):
             print(f"Warning: Skipping corruption at ({x_start_mask}, {y_start_mask}) due to invalid patch extraction. "
                   "This usually means the corruption is out of image bounds.")
             continue
+
 
         # Perform the prediction on the 64x64 patch
         predicted_patch = model.predict(np.expand_dims(input_for_model, axis=0), verbose=0)[0]
@@ -315,8 +283,97 @@ def inpaint_image_by_corruption(model, image, patch_size, corruptions_list):
 
     return inpainted_image
 
+# --- 5. Inpainting (Inference) ---
+def inpaint_image_by_corruption_v2(model, image, patch_size, corruptions_list):
+    """
+    Fills the damaged areas/corruptions in the image with random noise.
+
+    Args:
+        model: The trained inpainting model (not used for filling with noise, but kept for signature consistency).
+        image (np.array): The original damaged image (normalized to [0, 1]).
+        patch_size (int): The patch size used for training (not directly used for noise filling, but can be ignored).
+        corruptions_list (list): A list of tuples, where each tuple specifies
+                                 ((x_start, y_start), (x_stop, y_stop)) of a corrupted region.
+
+    Returns:
+        np.array: The image with corrupted areas filled with random noise.
+    """
+    inpainted_image = image.copy() # Start with the damaged image
+
+    for ((x_start, y_start), (x_stop, y_stop)) in corruptions_list:
+        # Calculate the dimensions of the current corruption
+        corruption_height = y_stop - y_start
+        corruption_width = x_stop - x_start
+
+        # Ensure valid dimensions
+        if corruption_height <= 0 or corruption_width <= 0:
+            print(f"Warning: Skipping corruption at ({x_start}, {y_start}) to ({x_stop}, {y_stop}) due to zero or negative dimensions.")
+            continue
+
+        # Generate random noise for this specific corruption region
+        # The noise values are in the range [0, 1], matching the normalized image pixel values.
+        random_noise_region = np.random.rand(corruption_height, corruption_width, CHANNELS).astype(np.float32)
+
+        # Determine the actual region to paste, accounting for image boundaries
+        paste_y_end_img = min(IMG_HEIGHT, y_start + corruption_height)
+        paste_x_end_img = min(IMG_WIDTH, x_start + corruption_width)
+
+        paste_height_actual = paste_y_end_img - y_start
+        paste_width_actual = paste_x_end_img - x_start
+
+        if paste_height_actual > 0 and paste_width_actual > 0:
+            # Place this random noise region back into the inpainted image
+            inpainted_image[y_start : y_start + paste_height_actual,
+                            x_start : x_start + paste_width_actual, :] = \
+                random_noise_region[0:paste_height_actual, 0:paste_width_actual, :]
+        else:
+            print(f"Warning: Skipping corruption at ({x_start}, {y_start}) to ({x_stop}, {y_stop}) due to zero or negative effective paste dimensions after clipping.")
+
+    return inpainted_image
+
+# To see individual training patch examples
+# masked_ex, original_ex = next(train_generator)
+# plt.figure(figsize=(10, 5))
+# plt.subplot(1, 2, 1)
+# plt.title("Example Masked Patch (Input)")
+# plt.imshow(masked_ex[0])
+# plt.axis('off')
+
+# plt.subplot(1, 2, 2)
+# plt.title("Example Original Patch (Target)")
+# plt.imshow(original_ex[0])
+# plt.axis('off')
+# plt.show()
+
+
+def SSIMLoss(y_true, y_pred):
+  return 1 - tf.reduce_mean(tf.image.ssim(y_true, y_pred, 1.0))
+
+try:
+    filename = 'autoencoder_random_noise_100_50_32_2025-05-21 17:24:35.823522.keras'
+    model_path = os.path.join(os.path.dirname(__file__), 'model-builds', filename)
+    model = keras.models.load_model(model_path, custom_objects={'SSIMLoss': SSIMLoss})
+except ValueError:
+    model = build_autoencoder((PATCH_SIZE, PATCH_SIZE, CHANNELS))
+    model.compile(optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE), loss=SSIMLoss) # Mean Squared Error is common for image tasks
+    model.summary()
+
+    # --- 4. Training ---
+    # Calculate steps per epoch based on how many batches you want per epoch
+    STEPS_PER_EPOCH = 50 # Each epoch will generate 100 * BATCH_SIZE patches
+    print(f"Training for {EPOCHS} epochs, with {STEPS_PER_EPOCH * BATCH_SIZE} patches per epoch.")
+
+    history = model.fit(train_generator,
+                        steps_per_epoch=STEPS_PER_EPOCH,
+                        epochs=EPOCHS,
+                        verbose=1)
+
+    filename = f'autoencoder_random_noise_{EPOCHS}_{STEPS_PER_EPOCH}_{BATCH_SIZE}_{datetime.datetime.now()}.keras'
+    model_path = os.path.join(os.path.dirname(__file__), 'model-builds', filename)
+    model.save(model_path)
+
 # Perform inpainting
-inpainted_result = inpaint_image_by_corruption(model, damaged_image_np, PATCH_SIZE, corruptions)
+inpainted_result = inpaint_image(model, damaged_image_np, PATCH_SIZE, corruptions)
 
 # --- Visualization ---
 plt.figure(figsize=(15, 5))
@@ -330,18 +387,4 @@ plt.title("Inpainted Result (Patch)")
 plt.imshow(inpainted_result)
 plt.axis('off')
 
-plt.show()
-
-# To see individual training patch examples
-masked_ex, original_ex = next(train_generator)
-plt.figure(figsize=(10, 5))
-plt.subplot(1, 2, 1)
-plt.title("Example Masked Patch (Input)")
-plt.imshow(masked_ex[0])
-plt.axis('off')
-
-plt.subplot(1, 2, 2)
-plt.title("Example Original Patch (Target)")
-plt.imshow(original_ex[0])
-plt.axis('off')
 plt.show()
