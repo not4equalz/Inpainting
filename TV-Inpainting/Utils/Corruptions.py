@@ -1,7 +1,6 @@
 import torch
 
 
-# === Random Inpainting Mask ===
 def random_inpaint(image, level=0.9):
     _, _, h, w = image.shape
     mask = (torch.rand((1, 1, h, w), device=image.device) > level).float()
@@ -22,7 +21,7 @@ def line_inpaint(image, line_width=5, angle=0):
     center_x, center_y = w // 2, h // 2
     angle_rad = torch.deg2rad(torch.tensor(angle, device=image.device))
     
-    # Create a grid of coordinates
+    # Create a coordgrid
     y_coords, x_coords = torch.meshgrid(torch.arange(h, device=image.device), torch.arange(w, device=image.device), indexing='ij')
     x_rot = (x_coords - center_x) * torch.cos(angle_rad) + (y_coords - center_y) * torch.sin(angle_rad)
     

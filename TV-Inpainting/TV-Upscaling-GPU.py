@@ -17,8 +17,6 @@ iter = 1500 #number of iterations for the optimizer
 
 #preprocess the image
 Orig, rgb_scaled, mask = pre.preprocess_upscale(file_path, new_scale=new_scale)
-#preprocess the image
-Orig, rgb_scaled, mask = pre.preprocess_upscale(file_path, new_scale=new_scale)
 
 # Convert to torch tensor (C, H, W) on the specified device
 rgb_scaled_tensor = torch.tensor(rgb_scaled, dtype=torch.float32, device=device).permute(2, 0, 1)  # (C, H, W)
@@ -32,7 +30,7 @@ optimizer = torch.optim.LBFGS([U], max_iter=iter, lr=1.0, line_search_fn="strong
 def closure():
     optimizer.zero_grad()
 
-    # Enforce hard constraints in-place
+    #Enforce hard constraints
     with torch.no_grad():
         U.data = U.data * (1 - mask_tensor) + rgb_scaled_tensor.unsqueeze(0) * mask_tensor
 

@@ -2,9 +2,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from PIL import Image
-np.random.seed(0)  # For reproducibility
 import Utils.Preprocessing as pre
 import Utils.SSIM as ssim
+np.random.seed(0)  
 
 #path to the image
 file_path = os.path.join(os.path.dirname(__file__), 'data', 'Lola.jpg')
@@ -59,10 +59,7 @@ save_path = os.path.join(os.path.dirname(__file__), 'generated', 'MSE')
 if not os.path.exists(save_path):
     os.makedirs(save_path)
 
-# Move plt.savefig before plt.show to avoid saving a blank figure
 plt.savefig(os.path.join(save_path, 'MSE.png'), bbox_inches='tight')
-
-
 plt.show()
 
 

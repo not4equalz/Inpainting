@@ -9,7 +9,7 @@ def calculate_ssim_paths(image1, image2):
     img2 = cv2.imread(image2)
 
     min_dim = min(image1.shape[0], image1.shape[1])
-    win_size = min(7, min_dim if min_dim % 2 == 1 else min_dim - 1)  # Ensure win_size is odd and <= min_dim
+    win_size = min(7, min_dim if min_dim % 2 == 1 else min_dim - 1)  
 
 
     #calculate SSIM
@@ -18,7 +18,7 @@ def calculate_ssim_paths(image1, image2):
 def calculate_ssim_arrays(image1, image2):
     #calculate SSIM given two image arrays
     min_dim = min(image1.shape[0], image1.shape[1])
-    win_size = min(7, min_dim if min_dim % 2 == 1 else min_dim - 1)  # Ensure win_size is odd and <= min_dim
+    win_size = min(7, min_dim if min_dim % 2 == 1 else min_dim - 1)  #win_size must be odd and <= min_dim
 
 
     #calculate SSIM

@@ -7,38 +7,37 @@ from Utils.SSIM import calculate_ssim_arrays
 import Utils.Corruptions as painting
 import Utils.loss as lossfunc
 import Utils.Preprocessing as pre
-
-# Set device to GPU if available
+np.random.seed(0)
+torch.manual_seed(0)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# Force CPU
+
+#Force CPU
 #device = torch.device("cpu")
+
 print(f"Using device: {device}")
 
 
 #path to the image
 file_path = os.path.join(os.path.dirname(__file__), 'data', 'Lola.jpg')
 
-#alpha
-alpha = .2
-
-# Width of the image after resizing  set to 1 for no resizing
+#Width of the image after resizing  set to 1 for no resizing
 width = 1
 
-inpainting_method = "square"  # Options: "line", "random", "square"
+inpainting_method = "line"  # Options: "line", "random", "square"
 
 # if random inpainting is used, set corruption level
 corruption = 0.2  # Corruption level between 0 (no corruption) and 1 (black pixels only)
 
 #if square inpainting is used, set square_size and num_squares
-square_size = 20  # Size of the squares to be inpainted
-num_squares = 20 # Number of squares to be inpainted
+square_size = 20
+num_squares = 20
 
 #if line inpainting is used, set line_width and angle
-line_width = 20  # Width of the line to be inpainted
-angle = 90  # Angle of the line in degrees
+line_width = 20
+angle = 90
 
 #Number of iterations for the optimizer
-iter = 1000
+iter = 600
 
 
 #preprocess the image
@@ -63,19 +62,23 @@ else:
 
 # === Objective Function ===
 U = U_paint.clone().detach().contiguous().requires_grad_(True)
-
 optimizer = torch.optim.LBFGS([U], max_iter=iter, lr=1.0, line_search_fn="strong_wolfe")
-
 def closure():
     optimizer.zero_grad()
+
+    #Enforce hard constraints
+    with torch.no_grad():
+        U.data = U.data * (1 - mask) + U_paint * mask
+
     fidelity = torch.nn.functional.mse_loss(U * mask, U_paint)
-    tv = lossfunc.tv_loss_normalize(U)
-    loss = fidelity + alpha * tv
+    tv = lossfunc.tv_loss(U)
+    loss =tv
     loss.backward()
+    U.grad *= (1 - mask)
     print(f"Loss: {loss.item():.6f} | Fidelity: {fidelity.item():.6f} | TV: {tv.item():.6f}")
     return loss
 
-# === Optimization ===
+#optimizing step
 print("Starting optimization...")
 optimizer.step(closure)
 
@@ -85,7 +88,7 @@ U = lossfunc.to_numpy(U)
 U_paint = lossfunc.to_numpy(U_paint)
 
 
-# Compute SSIM between two images
+#Compute SSIM between two images
 score = calculate_ssim_arrays(U, U_orig)
 print(f"Image similarity (SSIM): {score * 100:.2f}%")
 
@@ -105,7 +108,7 @@ plt.axis("off")
 
 plt.subplot(1, 4, 3)
 plt.imshow(U)
-plt.title(f"Denoised ({device}) | SSIM: {score * 100:.2f}%")
+plt.title(f"Inpainted ({device}) | SSIM: {score * 100:.2f}%")
 plt.axis("off")
 
 plt.subplot(1, 4, 4)

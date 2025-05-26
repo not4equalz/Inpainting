@@ -4,21 +4,24 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import os
 from Utils.SSIM import calculate_ssim_arrays
-from matplotlib.animation import FuncAnimation
 import Utils.Corruptions as painting
 import Utils.loss as lossfunc
 import Utils.Preprocessing as pre
-np.random.seed(0)
-torch.manual_seed(0)
+
 # Set device to GPU if available
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# Force CPU
+
+#Force CPU
 #device = torch.device("cpu")
+
 print(f"Using device: {device}")
 
 
 #path to the image
 file_path = os.path.join(os.path.dirname(__file__), 'data', 'Lola.jpg')
+
+#alpha
+alpha = .2
 
 # Width of the image after resizing  set to 1 for no resizing
 width = 1
@@ -26,18 +29,17 @@ width = 1
 inpainting_method = "square"  # Options: "line", "random", "square"
 
 # if random inpainting is used, set corruption level
-corruption = 0.98  # Corruption level between 0 (no corruption) and 1 (black pixels only)
+corruption = 0.2  # Corruption level between 0 (no corruption) and 1 (black pixels only)
 
 #if square inpainting is used, set square_size and num_squares
-square_size = 30  # Size of the squares to be inpainted
-num_squares = 20 # Number of squares to be inpainted
+square_size = 20 
+num_squares = 20 
 
 #if line inpainting is used, set line_width and angle
-line_width = 20  # Width of the line to be inpainted
-angle = 90  # Angle of the line in degrees
-
+line_width = 20  
+angle = 90  
 #Number of iterations for the optimizer
-iter = 300
+iter = 1000
 
 
 #preprocess the image
@@ -46,7 +48,7 @@ rgb_array = pre.preprocess(file_path, new_width=width)
 #copy the original image for later comparison
 U_orig = rgb_array.copy()
 
-# Convert to torch tensor (C, H, W) on the specified device
+#Convert to torch tensor (C, H, W) 
 image = torch.tensor(rgb_array, dtype=torch.float32).permute(2, 0, 1).unsqueeze(0).to(device)
 _, c, h, w = image.shape
 
@@ -60,57 +62,74 @@ elif inpainting_method == "square":
 else:
     raise ValueError(f"Invalid inpainting method: {inpainting_method}")
 
-# === Objective Function ===
+#initialize the inpainted image
 U = U_paint.clone().detach().contiguous().requires_grad_(True)
-optimizer = torch.optim.LBFGS([U], max_iter=iter, lr=1.0, line_search_fn="strong_wolfe")
 
-# Prepare for animation
-frames = []
+optimizer = torch.optim.LBFGS([U], max_iter=iter, lr=1.0, line_search_fn="strong_wolfe")
 
 def closure():
     optimizer.zero_grad()
-
-    # Enforce hard constraints in-place
-    with torch.no_grad():
-        U.data = U.data * (1 - mask) + U_paint * mask
-
     fidelity = torch.nn.functional.mse_loss(U * mask, U_paint)
-    tv = lossfunc.tv_loss(U)
-    loss = tv
+    tv = lossfunc.tv_loss_normalize(U)
+    loss = fidelity + alpha * tv
     loss.backward()
-    U.grad *= (1 - mask)
     print(f"Loss: {loss.item():.6f} | Fidelity: {fidelity.item():.6f} | TV: {tv.item():.6f}")
-
-    # Capture the current state of U for animation
-    with torch.no_grad():
-        frames.append(lossfunc.to_numpy(U).copy())
-
     return loss
 
 # === Optimization ===
 print("Starting optimization...")
 optimizer.step(closure)
 
-# Create animation
 
-fig, ax = plt.subplots(dpi=150)  # Increase DPI for higher resolution
-im = ax.imshow(frames[0], animated=True)
-ax.axis("off")
+#convert to numpy for visualization
+U = lossfunc.to_numpy(U)
+U_paint = lossfunc.to_numpy(U_paint)
 
-def update(frame):
-    im.set_array(frame)
-    return [im]
 
-ani = FuncAnimation(fig, update, frames=frames, interval=50, blit=True)
+# Compute SSIM between two images
+score = calculate_ssim_arrays(U, U_orig)
+print(f"Image similarity (SSIM): {score * 100:.2f}%")
 
-# Save the animation
-corruption_details = f"{inpainting_method}_corruption-{corruption}" if inpainting_method == "random" else \
-                     f"{inpainting_method}_square-{square_size}_num-{num_squares}" if inpainting_method == "square" else \
-                     f"{inpainting_method}_line-{line_width}_angle-{angle}"
-output_path = os.path.join(os.path.dirname(__file__), 'generated', 'animated', f'animation_{corruption_details}.mp4')
-os.makedirs(os.path.dirname(output_path), exist_ok=True)
-ani.save(output_path, fps=60, extra_args=['-vcodec', 'libx264'])
-print(f"Animation saved to: {output_path}")
 
+plt.figure(figsize=(16, 4))
+plt.subplot(1, 4, 1)
+plt.imshow(U_orig)
+plt.title("Original Image")
+plt.axis("off")
+
+plt.subplot(1, 4, 2)
+plt.imshow(U_paint)
+corruption_percentage = (1 - mask.mean().item()) * 100
+print(f"Corruption percentage: {corruption_percentage:.2f}%")
+plt.title(f"Corrupted ({corruption_percentage:.2f}%)")
+plt.axis("off")
+
+plt.subplot(1, 4, 3)
+plt.imshow(U)
+plt.title(f"Denoised ({device}) | SSIM: {score * 100:.2f}%")
+plt.axis("off")
+
+plt.subplot(1, 4, 4)
+plt.imshow(np.clip(U - U_orig, 0, 1))
+plt.title(f"Difference")
+plt.axis("off")
+
+plt.tight_layout()
+
+# Save the inpainted image
+if inpainting_method == "line":
+    corruption_details = f"line_width_{line_width}_angle_{angle}"
+elif inpainting_method == "random":
+    corruption_details = f"corruption_{corruption:.2f}"
+elif inpainting_method == "square":
+    corruption_details = f"square_size_{square_size}_num_squares_{num_squares}"
+else:
+    corruption_details = "unknown"
+
+output_filename = f"inpainted_image_{inpainting_method}_{corruption_details}.png"
+output_path = os.path.join(os.path.dirname(__file__), 'generated', output_filename)
+
+plt.savefig(output_path, bbox_inches='tight', dpi=300)
+print(f"Inpainted image saved to: {output_path}")
 plt.show()
 
